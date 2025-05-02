@@ -1,5 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #include <vector>
+#include <cmath>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -64,7 +65,8 @@ public:
 	double R;
 	Vector C;
 	Vector albedo;
-	Sphere(double R, const Vector& C, const Vector& albedo) :R(R), C(C), albedo(albedo){
+    bool reflective;
+	Sphere(double R, const Vector& C, const Vector& albedo, bool reflective = false) :R(R), C(C), albedo(albedo), reflective(reflective){
 	};
 	bool intersect(const Ray& ray, Vector& P, Vector& N) const {
 		double delta = dot(ray.d, ray.o - C) * dot(ray.d, ray.o - C) - (dot(ray.o - C, ray.o - C)) + R * R;
@@ -102,6 +104,16 @@ bool pointInShadow(const Vector& P, const Vector& lightPos, const std::vector<Sp
     return false;  
 }
 
+    double t2 = -b + sqrtDelta;
+    double t = (t1 > 1e-4) ? t1 : ((t2 > 1e-4) ? t2 : -1);
+    if (t < 0) return false;
+
+    P = ray.o + ray.d * t;
+    N = (P - sphere.C) / sphere.R;
+    return true;
+}
+
+
 class Scene {
 public:
     std::vector<Sphere> spheres;
@@ -128,6 +140,54 @@ public:
         }
         return hit;
     }
+    int findFirstHitIndex(const Ray& ray) const {
+        double closestT = 1e9;
+        int hitIndex = -1;
+
+        for (int i = 0; i < spheres.size(); ++i) {
+            const Sphere& sphere = spheres[i];
+            Vector OC = ray.o - sphere.C;
+            double b = dot(ray.d, OC);
+            double c = dot(OC, OC) - sphere.R * sphere.R;
+            double delta = b * b - c;
+
+            if (delta >= 0) {
+                double sqrtDelta = sqrt(delta);
+                double t1 = -b - sqrtDelta;
+                double t2 = -b + sqrtDelta;
+                double t = (t1 > 1e-4) ? t1 : ((t2 > 1e-4) ? t2 : -1);
+
+                if (t > 0 && t < closestT) {
+                    closestT = t;
+                    hitIndex = i;
+                }
+            }
+        }
+
+        return hitIndex;
+    }
+    Vector getColor(const Ray& ray, int ray_depth){
+        if (ray_depth < 0) return Vector(0, 0, 0);
+        Vector P, N, albedo;
+        int sphere_id = findFirstHitIndex(ray);
+        if (intersect(ray, P, N, albedo)) {
+            if(sphere_id != -1){
+                if (spheres[sphere_id].reflective) {
+                    Ray reflected_r(P + 1e-4 * N, reflect(ray.d, N));
+                    return getColor(reflected_r, ray_depth - 1);
+                }
+            }
+            Vector lightDir = lightPos - P;
+            double d2 = lightDir.norm2();
+            lightDir.normalize();
+            int vp = 1;
+            bool inshad = pointInShadow(P, lightPos, spheres);
+            if (inshad) vp = 0;
+            double intensity = (lightIntensity / (4 * M_PI * d2)) * vp * std::max(0.0, dot(N, lightDir));
+            Vector color = (albedo / M_PI) * (255 * intensity);
+            return color;
+        }
+    }
 };
 
 
@@ -139,7 +199,7 @@ int main() {
     Vector lightPos(-10, 20, 40);
     double lightIntensity = 1e5;
     Scene scene(lightPos, lightIntensity);
-    scene.addSphere(Sphere(8, Vector(0, 0, 0), Vector(0.8, 0.8, 0.8)));
+    scene.addSphere(Sphere(8, Vector(0, 0, 0), Vector(0.8, 0.8, 0.8), true));
     scene.addSphere(Sphere(8, Vector(20, 0, 0), Vector(0.8, 0.8, 0.8)));
     scene.addSphere(Sphere(8, Vector(-20, 0, 0), Vector(0.8, 0.8, 0.8)));
     scene.addSphere(Sphere(940, Vector(0, 1000, 0), Vector(0.2, 0.5, 0.9)));
@@ -149,28 +209,18 @@ int main() {
     scene.addSphere(Sphere(940, Vector(1000, 0, 0), Vector(0.6, 0.5, 0.1)));
     scene.addSphere(Sphere(940, Vector(0, 0, 1000), Vector(0.9, 0.4, 0.3)));
 
-
     std::vector<unsigned char> image(W * H * 3, 0);
+
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             double d = -W / (2. * tan(fov / 2));
             Vector direction(j + 0.5 - W / 2, H - i - 1 + 0.5 - H / 2, d);
             direction.normalize();
             Ray ray(Camera, direction);
-            Vector P, N, albedo;
-            if (scene.intersect(ray, P, N, albedo)) {
-                Vector lightDir = scene.lightPos - P;
-                double d2 = lightDir.norm2();
-                lightDir.normalize();
-                int vp = 1;
-                bool inshad = pointInShadow(P, scene.lightPos, scene.spheres);
-                if (inshad) vp = 0;
-                double intensity = (scene.lightIntensity / (4 * M_PI * d2)) * vp * std::max(0.0, dot(N, lightDir));
-                Vector color = (albedo / M_PI) * (255 * intensity);
-                image[(i * W + j) * 3 + 0] = static_cast<unsigned char>(std::min(255.0, std::max(0.0, color[0])));
-                image[(i * W + j) * 3 + 1] = static_cast<unsigned char>(std::min(255.0, std::max(0.0, color[1])));
-                image[(i * W + j) * 3 + 2] = static_cast<unsigned char>(std::min(255.0, std::max(0.0, color[2])));
-            }
+            Vector color = scene.getColor(ray, 3);
+            image[(i * W + j) * 3 + 0] = static_cast<unsigned char>(std::min(255.0, std::max(0.0, color[0])));
+            image[(i * W + j) * 3 + 1] = static_cast<unsigned char>(std::min(255.0, std::max(0.0, color[1])));
+            image[(i * W + j) * 3 + 2] = static_cast<unsigned char>(std::min(255.0, std::max(0.0, color[2])));
         }
     }
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
