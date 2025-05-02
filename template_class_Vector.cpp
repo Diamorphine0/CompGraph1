@@ -139,7 +139,9 @@ int main() {
     Vector lightPos(-10, 20, 40);
     double lightIntensity = 1e5;
     Scene scene(lightPos, lightIntensity);
-    scene.addSphere(Sphere(10, Vector(0, 0, 0), Vector(0.8, 0.8, 0.8)));
+    scene.addSphere(Sphere(8, Vector(0, 0, 0), Vector(0.8, 0.8, 0.8)));
+    scene.addSphere(Sphere(8, Vector(20, 0, 0), Vector(0.8, 0.8, 0.8)));
+    scene.addSphere(Sphere(8, Vector(-20, 0, 0), Vector(0.8, 0.8, 0.8)));
     scene.addSphere(Sphere(940, Vector(0, 1000, 0), Vector(0.2, 0.5, 0.9)));
     scene.addSphere(Sphere(990, Vector(0, -1000, 0), Vector(0.3, 0.4, 0.7)));
     scene.addSphere(Sphere(940, Vector(0, 0, -1000), Vector(0.4, 0.8, 0.7)));
